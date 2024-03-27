@@ -17,7 +17,7 @@ These instructions assume you have basic familiarity with using Wrangler and hav
 3. On the next page take note of the `Application (client) ID` and the `Directory (tenant) ID`
 4. On the sidebar, click "Certificates & Secrets" and click "New client secret", create a client secret and take note of the `value`
 
-### Fill out the wrangler.toml
+### Configure & Deploy
 
 1. Using the example, create the wrangler.toml
 ```bash
