@@ -1,0 +1,11 @@
+name = ""
+main = "src/index.ts"
+compatibility_date = "2024-03-20"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+clientId = "YOUR_CLIENT_ID"
+redirectUri = "https://YOUR_PRODUCTION_URL/redirect"
+successRedirectUrl = "https://example.com/"
+targetDomain = "example.com"
+tenantId = "YOUR_TENANT_ID"
