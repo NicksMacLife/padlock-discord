@@ -1,16 +1,7 @@
-export interface Env {
-    clientId: event.env.clientId,
-    clientSecret: event.env.clientSecret,
-    tenantId: event.env.tenantId,
-    redirectUri: event.env.redirectUri,
-    targetDomain: event.env.targetDomain,
-    successRedirectUrl: event.env.successRedirectUrl,
-};
-
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		return handleRequest(request, env);
-	}
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return handleRequest(request, env);
+  }
 };
 
 // Generic interfaces for the token and user data responses
@@ -24,28 +15,43 @@ interface TokenResponse {
 }
 
 interface UserData {
-  organization?: string;
+  id?: string;
+  username?: string;
+  discriminator?: string;
+  email?: string;
+  verified?: boolean;
   error?: string;
+}
+
+interface Guild {
+  id: string;
+  name: string;
+  owner: boolean;
+  permissions: string;
+}
+
+interface MemberData {
+  roles: string[];
 }
 
 async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url: URL = new URL(request.url);
   const path: string = url.pathname;
 
-  if (path === '/') { // If we're at the root path, redirect to the Microsoft login page
-    return Response.redirect(`https://login.microsoftonline.com/${env.tenantId}/oauth2/v2.0/authorize?client_id=${env.clientId}&response_type=code&redirect_uri=${encodeURIComponent(env.redirectUri)}&response_mode=query&scope=User.Read`);
+  if (path === '/') { // If we're at the root path, redirect to the Discord login page
+    return Response.redirect(`https://discord.com/api/oauth2/authorize?client_id=${env.clientId}&redirect_uri=${encodeURIComponent(env.redirectUri)}&response_type=code&scope=identify email guilds`);
   } else if (path === '/redirect') { // If we're at the redirect path, handle the authorization code
     const code: string | null = url.searchParams.get('code');
     if (!code) {
       return new Response('Authorization code not found.', { status: 400 });
     }
 
-    const tokenResponse = await fetch(`https://login.microsoftonline.com/${env.tenantId}/oauth2/v2.0/token`, {
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: `client_id=${env.clientId}&scope=User.Read&code=${code}&redirect_uri=${encodeURIComponent(env.redirectUri)}&grant_type=authorization_code&client_secret=${env.clientSecret}`,
+      body: `client_id=${env.clientId}&client_secret=${env.clientSecret}&grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(env.redirectUri)}`,
     });
 
     const tokenData: TokenResponse = await tokenResponse.json();
@@ -56,7 +62,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
 
     // Using the access token we obtained, fetch the user data
 
-    const userDataResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+    const userDataResponse = await fetch('https://discord.com/api/users/@me', {
       headers: {
         'Authorization': `Bearer ${tokenData.access_token}`,
       },
@@ -68,14 +74,46 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       return new Response(userData.error, { status: 400 });
     }
 
+    // Fetch the user's guilds
+    const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`,
+      },
+    });
 
-    if (userData.mail && userData.mail.endsWith(env.targetDomain)) { // If the user is authenticated and has the correct domain, redirect to the success URL
+    const guilds: Guild[] = await guildsResponse.json();
+
+    // Check if the user is in the required guilds and has the necessary roles
+    let authorized = false;
+
+    for (const requiredGuild of env.guilds) {
+      const guild = guilds.find(g => g.id === requiredGuild.id);
+
+      if (guild) {
+        const memberResponse = await fetch(`https://discord.com/api/guilds/${guild.id}/members/${userData.id}`, {
+          headers: {
+            'Authorization': `Bearer ${tokenData.access_token}`,
+          },
+        });
+
+        const memberData: MemberData = await memberResponse.json();
+
+        if (memberData.roles) {
+          const hasAllRoles = requiredGuild.roleIDs.every(roleID => memberData.roles.includes(roleID));
+          if (hasAllRoles) {
+            authorized = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (authorized) {
       return Response.redirect(env.successRedirectUrl);
-    } else {  // If the user is authenticated but doesn't have the correct domain, return a 401
+    } else {
       return new Response('Authentication failed', { status: 401 });
     }
   }
 
   return new Response('Not found', { status: 404 });
 }
-
